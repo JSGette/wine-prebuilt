@@ -1,0 +1,124 @@
+{
+  "test-ninja-amd64": {
+    "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+    "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65",
+    "format": "file",
+    "revision": "v1.13.2"
+  },
+  "test-ninja-arm64": {
+    "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-winarm64.zip",
+    "sha256": "e52f0bdef9dfb1003229dbd6508a508c4073fd017247002adc66e5e806cb0391",
+    "format": "file",
+    "revision": "v1.13.2"
+  },
+  "wine": {
+    "version": "11.20",
+    "url": "https://codeload.github.com/wine-mirror/wine/tar.gz/refs/tags/wine-11.20",
+    "sha256": "98b21b4ebdf7d9e2baa4a3508514285cf449f455603f82d3364b014c0e79b793",
+    "revision": "7298a818b79446bae153b8d5aa27235ab3703bf9"
+  },
+  "fex": {
+    "url": "https://api.github.com/repos/metalsharp/MetalSharp-Wine/tarball/bfb6ef17d77dfeb751a9e60775b61b7a5200627b",
+    "sha256": "f749fbd969a31369e169b9d0ef2bdde87015522f3d37cb3dd57fc63d4a5ec93b",
+    "revision": "bfb6ef17d77dfeb751a9e60775b61b7a5200627b"
+  },
+  "fex-cpp-optparse": {
+    "url": "https://codeload.github.com/Sonicadvance1/cpp-optparse/tar.gz/9f94388a339fcbb0bc95c17768eb786c85988f6e",
+    "revision": "9f94388a339fcbb0bc95c17768eb786c85988f6e",
+    "sha256": "68e6b500890270517d226abbc3610135de1600ddde29f44c9b68cca5e2a17f60"
+  },
+  "fex-fmt": {
+    "url": "https://codeload.github.com/fmtlib/fmt/tar.gz/c07e2aa4b130b4fd359a1c6455a5201b17af01fa",
+    "revision": "c07e2aa4b130b4fd359a1c6455a5201b17af01fa",
+    "sha256": "e0099a9035521b29523915fae2e5f1b38229df896191e4a046f7b0d55a45c7d2"
+  },
+  "fex-range-v3": {
+    "url": "https://codeload.github.com/ericniebler/range-v3/tar.gz/ca1388fb9da8e69314dda222dc7b139ca84e092f",
+    "revision": "ca1388fb9da8e69314dda222dc7b139ca84e092f",
+    "sha256": "57a6fca5d60a85b84e8efecc62f0ca064e6b1f89b97b513284fe7f5bd43d49eb"
+  },
+  "fex-unordered_dense": {
+    "url": "https://codeload.github.com/martinus/unordered_dense/tar.gz/3234af2c03549bc85656bfd3a86993bf1cd8aef1",
+    "revision": "3234af2c03549bc85656bfd3a86993bf1cd8aef1",
+    "sha256": "aa68d77ef88475db710bf647017f5ccb13ceec6f55f3defa37e995b043eb990b"
+  },
+  "fex-xxhash": {
+    "url": "https://codeload.github.com/Cyan4973/xxHash/tar.gz/e626a72bc2321cd320e953a0ccf1584cad60f363",
+    "revision": "e626a72bc2321cd320e953a0ccf1584cad60f363",
+    "sha256": "34e71c085636fbc1726482996d92719d0a16e6a6097970ecf2990a27b3821162"
+  },
+  "fex-rpmalloc": {
+    "url": "https://codeload.github.com/FEX-Emu/rpmalloc/tar.gz/09142d726429416bfa7b459151515fe3ab7622dd",
+    "revision": "09142d726429416bfa7b459151515fe3ab7622dd",
+    "sha256": "3250fcc53532ed6161642b77f6179c7ba73173fb2130314aa7f019a574266ff6"
+  },
+  "toolchain-macos-arm64": {
+    "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-macos-universal.tar.xz",
+    "sha256": "e9c13e4ede38e715003ffc674d4d00a1088df8235439d1f0c16188ff0704c17e",
+    "revision": "20261020"
+  },
+  "toolchain-linux-arm64": {
+    "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-ubuntu-22.04-aarch64.tar.xz",
+    "sha256": "ca16bb0f4f485876496fa46ad8d353c525eba57d0cf9e9e49ec1738fe4810151",
+    "revision": "20261020"
+  },
+  "toolchain-linux-amd64": {
+    "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz",
+    "sha256": "55064b60b991a1e1e8090b8c2f84e82b22cfe5903d12c159d65064cf5e8ae335",
+    "revision": "20261020"
+  },
+  "sysroot-amd64-glibc": {
+    "url": "https://vault.centos.org/7.9.2009/os/x86_64/Packages/glibc-2.17-317.el7.x86_64.rpm",
+    "sha256": "49eb081de1ddd13f5440abdbb3b42cdd01d11b74d624793ae1b80a1cf432551b",
+    "format": "file",
+    "revision": "2.17-317.el7"
+  },
+  "sysroot-amd64-glibc-devel": {
+    "url": "https://vault.centos.org/7.9.2009/os/x86_64/Packages/glibc-devel-2.17-317.el7.x86_64.rpm",
+    "sha256": "57e04523b12c9aa5a0632cbfa2ff13e33f1ecec5e6bd0b609a77d9c24cebf8c4",
+    "format": "file",
+    "revision": "2.17-317.el7"
+  },
+  "sysroot-amd64-glibc-headers": {
+    "url": "https://vault.centos.org/7.9.2009/os/x86_64/Packages/glibc-headers-2.17-317.el7.x86_64.rpm",
+    "sha256": "b7e4e19b362cbd73e09e6ee5eff3d70dbeb7cc2c702a927b8f646f324d4ec4a3",
+    "format": "file",
+    "revision": "2.17-317.el7"
+  },
+  "sysroot-amd64-kernel-headers": {
+    "url": "https://vault.centos.org/7.9.2009/os/x86_64/Packages/kernel-headers-3.10.0-1160.el7.x86_64.rpm",
+    "sha256": "81b4e4f401d2402736ceba4627eaafd5b615c2cc45aa4d4f941ea79562045139",
+    "format": "file",
+    "revision": "3.10.0-1160.el7"
+  },
+  "sysroot-amd64-gcc": {
+    "url": "https://vault.centos.org/7.9.2009/os/x86_64/Packages/gcc-4.8.5-44.el7.x86_64.rpm",
+    "sha256": "186d9bdbb568d08c4d8b2f9a2c0fce952c2ac80ef5989806116df61c7cbc5a22",
+    "format": "file",
+    "revision": "4.8.5-44.el7"
+  },
+  "sysroot-arm64-glibc": {
+    "url": "https://vault.centos.org/altarch/7.9.2009/os/aarch64/Packages/glibc-2.17-317.el7.aarch64.rpm",
+    "sha256": "ca1976545bcd4a6c099f1b3e2505469083b6bb4901d2517275a8da4138c0b21a",
+    "format": "file",
+    "revision": "2.17-317.el7"
+  },
+  "sysroot-arm64-glibc-devel": {
+    "url": "https://vault.centos.org/altarch/7.9.2009/os/aarch64/Packages/glibc-devel-2.17-317.el7.aarch64.rpm",
+    "sha256": "458738f7b415fb73473725b6bef340234954e4eb00731cbf8aa1afad5ccd12f6",
+    "format": "file",
+    "revision": "2.17-317.el7"
+  },
+  "sysroot-arm64-glibc-headers": {
+    "url": "https://vault.centos.org/altarch/7.9.2009/os/aarch64/Packages/glibc-headers-2.17-317.el7.aarch64.rpm",
+    "sha256": "58a5802d026435b36d7080ea4943868a82fc41642a2b0e475239bd6aaa5882cd",
+    "format": "file",
+    "revision": "2.17-317.el7"
+  },
+  "sysroot-arm64-kernel-headers": {
+    "url": "https://vault.centos.org/altarch/7.9.2009/os/aarch64/Packages/kernel-headers-4.18.0-193.28.1.el7.aarch64.rpm",
+    "sha256": "56fffc40800cd7c30830009c860f04c8dba1110a6271efd804a0bb01e0bdf8a4",
+    "format": "file",
+    "revision": "4.18.0-193.28.1.el7"
+  }
+}
