@@ -1,0 +1,45 @@
+name: Temporary Linux startup diagnosis
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: logs-${{ matrix.platform }}
+          run-id: '40388218515'
+          github-token: ${{ github.token }}
+          path: input
+      - name: Inspect native and container startup
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y strace
+          mkdir runtime logs
+          tar --zstd -xf "input/out/wine-$PLATFORM-11.20.1.tar.zst" -C runtime
+          uname -a
+          ulimit -a
+          sysctl vm.mmap_rnd_bits vm.mmap_min_addr
+          runtime/bin/wine --version
+          mkdir logs/native
+          timeout 60 strace -f -o logs/native/trace.log env -i HOME="$PWD/logs/native" PATH=/usr/bin:/bin LC_ALL=C.UTF-8 WINEPREFIX="$PWD/logs/native/prefix" WINESERVER="$PWD/runtime/bin/wineserver" WINEDEBUG=+all WINEDLLOVERRIDES=mscoree,mshtml,winemenubuilder.exe= "$PWD/runtime/bin/wine" wineboot.exe --init > logs/native/boot.log 2>&1 || true
+          docker run --rm -v "$PWD:$PWD" -w "$PWD" ubuntu:24.04 bash -c 'apt-get update -qq && apt-get install -y strace; mkdir logs/container; ulimit -a; timeout 60 strace -f -o logs/container/trace.log env -i HOME="$PWD/logs/container" PATH=/usr/bin:/bin LC_ALL=C.UTF-8 WINEPREFIX="$PWD/logs/container/prefix" WINESERVER="$PWD/runtime/bin/wineserver" WINEDEBUG=+all WINEDLLOVERRIDES=mscoree,mshtml,winemenubuilder.exe= "$PWD/runtime/bin/wine" wineboot.exe --init > logs/container/boot.log 2>&1; chmod -R a+rX logs/container' || true
+          tail -n 50 logs/native/trace.log logs/container/trace.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: diagnosis-${{ matrix.platform }}
+          path: |
+            logs/**/*.log
