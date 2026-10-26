@@ -26,7 +26,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y strace
+          sudo apt-get install -y strace gdb
           mkdir runtime logs
           tar --zstd -xf "input/out/wine-$PLATFORM-11.20.1.tar.zst" -C runtime
           uname -a
@@ -37,6 +37,8 @@ jobs:
           timeout 60 strace -f -o logs/native/trace.log env -i HOME="$PWD/logs/native" PATH=/usr/bin:/bin LC_ALL=C.UTF-8 WINEPREFIX="$PWD/logs/native/prefix" WINESERVER="$PWD/runtime/bin/wineserver" WINEDEBUG=+all WINEDLLOVERRIDES=mscoree,mshtml,winemenubuilder.exe= "$PWD/runtime/bin/wine" wineboot.exe --init > logs/native/boot.log 2>&1 || true
           docker run --rm -v "$PWD:$PWD" -w "$PWD" ubuntu:24.04 bash -c 'apt-get update -qq && apt-get install -y strace; mkdir logs/container; ulimit -a; timeout 60 strace -f -o logs/container/trace.log env -i HOME="$PWD/logs/container" PATH=/usr/bin:/bin LC_ALL=C.UTF-8 WINEPREFIX="$PWD/logs/container/prefix" WINESERVER="$PWD/runtime/bin/wineserver" WINEDEBUG=+all WINEDLLOVERRIDES=mscoree,mshtml,winemenubuilder.exe= "$PWD/runtime/bin/wine" wineboot.exe --init > logs/container/boot.log 2>&1; chmod -R a+rX logs/container' || true
           tail -n 50 logs/native/trace.log logs/container/trace.log
+          env -i HOME="$PWD/logs/native" PATH=/usr/bin:/bin LC_ALL=C.UTF-8 WINEPREFIX="$PWD/logs/native/prefix" WINESERVER="$PWD/runtime/bin/wineserver" WINEDEBUG=+all WINEDLLOVERRIDES=mscoree,mshtml,winemenubuilder.exe= gdb -batch -ex 'set disable-randomization off' -ex run -ex 'thread apply all bt' -ex 'info registers' -ex 'x/10i $pc-16' --args "$PWD/runtime/bin/wine" wineboot.exe --init > logs/native/gdb.log 2>&1 || true
+          cat logs/native/gdb.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
