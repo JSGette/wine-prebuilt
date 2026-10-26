@@ -17,9 +17,15 @@ The patches retain optional 4K/entitlement support even though i386 is not
 qualified. Their presence is not a claim that restricted entitlements are
 available to an unsigned download.
 
-Linux ARM64 applies only the `loader/wine.inf.in` hunk of patch 4: it registers
+Linux ARM64 applies `linux-arm64-fex.patch`, containing only the
+`loader/wine.inf.in` hunk of patch 4: it registers
 the ARM64EC and WoW64 FEX modules. No Darwin changes are applied to Linux.
 Linux amd64 is unpatched.
+
+Preparation uses the standard `patch` tool with fuzz disabled. `git apply`
+can silently skip paths when an extracted source tree sits inside an ignored
+directory of another Git repository. The source-preparation regression exercises
+that layout with the real pinned Wine source before CI builds begin.
 
 Steam bridges, bundled fonts, game assets, graphics integration and later
 gaming-specific changes from the full fork are excluded. FEX uses the exact

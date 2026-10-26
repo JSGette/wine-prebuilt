@@ -31,14 +31,17 @@ def prepare_wine(destination, source, target):
     with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
         staging = Path(temporary) / "source"
         shutil.copytree(source, staging, symlinks=True)
-        patches = sorted((ROOT / "patches/macos").glob("*.patch"))
         if target == "macos-arm64":
-            for patch in patches:
-                run("git", "apply", str(patch), cwd=staging)
+            patches = sorted((ROOT / "patches/macos").glob("*.patch"))
         elif target == "linux-arm64":
             # The emulator registration is shared; macOS host adaptations are not.
-            patch = next((ROOT / "patches/macos").glob("0004-*.patch"))
-            run("git", "apply", "--include=loader/wine.inf.in", str(patch), cwd=staging)
+            patches = [ROOT / "patches/linux-arm64-fex.patch"]
+        else:
+            patches = []
+        for patch in patches:
+            # Unlike git apply, patch does not depend on an enclosing worktree.
+            run("patch", "-t", "-N", "-F", "0", "-p1", "-i", str(patch),
+                cwd=staging, stdin=subprocess.DEVNULL)
         staging.rename(destination)
 
 

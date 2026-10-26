@@ -51,6 +51,7 @@ jobs:
             -v "$PWD:/src:ro" -v "$PWD/.work:/work" -v "$PWD/out:/out" \
             -e WINE_BUILD_WORK=/work -e PLATFORM -e SERIAL -e JOBS \
             wine-prebuilt-builder bash -euc '
+              python3 tests/source-preparation.py --work /work
               bash tools/build-linux.sh
               python3 tools/qualify.py /work/"$PLATFORM"/*/build.json --output /out --serial "$SERIAL"
             '
@@ -64,6 +65,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install bison cmake ninja python@3.14
+          python3 tests/source-preparation.py
           python3 tools/build.py "$PLATFORM" --jobs "$JOBS"
           python3 tools/qualify.py .work/"$PLATFORM"/*/build.json --output out --serial "$SERIAL"
 

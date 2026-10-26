@@ -1,0 +1,24 @@
+From 99662cf266dcffcd6b43bdd28658d244a1e043db Mon Sep 17 00:00:00 2001
+From: Avery Felts <averyfelts@aol.com>
+Date: Thu, 22 Oct 2026 03:30:06 -0600
+Subject: [PATCH] Register FEX as the ARM64EC and WoW64 emulator
+
+Extracted loader/wine.inf.in hunk from MetalSharp's patch 0004. The macOS
+ARM64 ID-register changes in the original commit do not apply to Linux.
+
+diff --git a/loader/wine.inf.in b/loader/wine.inf.in
+index c120aef4216..3588806c373 100644
+--- a/loader/wine.inf.in
++++ b/loader/wine.inf.in
+@@ -401,9 +401,9 @@ HKLM,%CurrentVersion%,"ProgramFilesDir (x86)",,"%16426%"
+ HKLM,%CurrentVersion%,"CommonFilesDir (x86)",,"%16428%"
+ HKLM,%CurrentVersion%,"ProgramFilesDir (Arm)",,"C:\Program Files (Arm)"
+ HKLM,%CurrentVersion%,"CommonFilesDir (Arm)",,"C:\Program Files (Arm)\Common Files"
+-HKLM,Software\Microsoft\Wow64\amd64,,2,"xtajit64.dll"
++HKLM,Software\Microsoft\Wow64\amd64,,2,"libarm64ecfex.dll"
+ HKLM,Software\Microsoft\Wow64\arm,,2,"wowarmhw.dll"
+-HKLM,Software\Microsoft\Wow64\x86,,2,"xtajit.dll"
++HKLM,Software\Microsoft\Wow64\x86,,2,"libwow64fex.dll"
+ 
+ [CurrentVersionWow64.ntx86]
+ HKLM,%CurrentVersion%,"ProgramFilesDir (x86)",,"%16422%"
