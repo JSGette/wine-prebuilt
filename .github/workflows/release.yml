@@ -24,7 +24,7 @@ jobs:
           TAG: ${{ inputs.tag_name || github.ref_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 tools/prepare-release.py "$TAG" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+          python3 tools/release.py "$TAG" --check-tag --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
   release:
     needs: prepare
     uses: ./.github/workflows/reusable-release.yml

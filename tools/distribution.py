@@ -4,10 +4,12 @@ import hashlib
 import re
 from pathlib import Path
 
+MACOS_DEPLOYMENT_TARGET = "26.5"
+
 PLATFORMS = {
     "linux-amd64": {"guests": ["amd64", "i386"], "requirements": {"glibc": "2.17", "utf8_locale": True}},
     "linux-arm64": {"guests": ["arm64", "amd64", "i386"], "requirements": {"glibc": "2.17", "utf8_locale": True}},
-    "macos-arm64": {"guests": ["arm64", "amd64"], "requirements": {"macos": "26.5", "rosetta": False}},
+    "macos-arm64": {"guests": ["arm64", "amd64"], "requirements": {"macos": MACOS_DEPLOYMENT_TARGET, "rosetta": False}},
 }
 FORMATS = (".tar.gz", ".tar.zst")
 

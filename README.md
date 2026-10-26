@@ -1,99 +1,166 @@
 # wine-prebuilt
 
-Source-built, headless Wine distributions for build tools. One archive per
-executor OS/CPU; ARM64 archives include FEX for x64 Windows programs. No Rosetta,
-QEMU, Linux guest rootfs, system Wine installation, or Windows SDK is required.
+Source-built, headless Wine distributions for Windows build tools. One archive
+per executor OS/CPU; ARM64 archives include FEX. No Rosetta, QEMU, Linux guest
+rootfs, system Wine installation, or Windows SDK is required.
 
-| Executor | Windows guest CPUs | Runtime requirement |
+| Executor | Windows guest CPUs | Declared runtime requirement |
 | --- | --- | --- |
 | Linux amd64 | amd64, i386 | glibc 2.17+, installed UTF-8 locale |
 | Linux ARM64 | ARM64, amd64, i386 | glibc 2.17+, installed UTF-8 locale |
-| macOS ARM64 | ARM64, amd64 | macOS 26.5+; initial qualification only |
+| macOS ARM64 | ARM64, amd64 | deployment target 26.5; see compatibility below |
 
-macOS i386 is **not supported** in the initial distribution. Its startup needs
-low-address memory that the current unsigned command-line loader cannot obtain.
-Developer ID signing, Apple's restricted cross-architecture entitlement, and
-notarization are a separate qualification task. ARM64/x64 execution does not
-establish that arbitrary Windows applications work; see [limitations](#limitations).
+Windows executors run Windows programs natively and need no archive. Bazel
+integration belongs in `rules_wine`.
 
-Windows amd64 and ARM64 executors run Windows programs natively and need no Wine
-archive. These three distributions therefore cover the non-Windows portion of
-the five-executor plan. Bazel integration belongs in `rules_wine`.
+## Pipeline
 
-## Inputs
+GitHub Actions calls these operations explicitly, in order. A failed stage
+prevents attestation and publication. Linux and macOS use the same commands.
 
-The initial recipe pins Wine **11.20**, LLVM-MinGW **20261020**, and MetalSharp's
-FEX fork at `bfb6ef17d77dfeb751a9e60775b61b7a5200627b`. Downloads have SHA-256
-checksums in `sources.json`. Wine 11.20 is a development release, not stable 11.0.
+| Stage | Command | Inputs → outputs |
+| --- | --- | --- |
+| Build | `tools/build.py PLATFORM` | Pinned sources and patches → `.work/PLATFORM/{install,sources,recipe,build.json}` |
+| Package | `tools/package.py BUILD_DIRECTORY` | Installed runtime and prepared sources → archives, manifest, checksums in `out/` |
+| Check artifacts | `tests/artifacts.py ARCHIVE --platform PLATFORM` | Actual archives → `.artifacts.json` |
+| Compile test fixtures | `tests/build.py BUILD_DIRECTORY` | Pinned compiler and test sources → `BUILD_DIRECTORY/fixtures/` |
+| Test runtime | `tests/runtime.py ARCHIVE FIXTURES` | Relocated archive, every supported guest CPU, Windows Ninja → `.qualification.json` |
+| Test compatibility | `tests/compatibility.py ARCHIVE FIXTURES` | Same Linux archive in pinned CentOS 7 userspace → `.glibc217.json` |
+| Attest | `actions/attest` | Checked archives and reports → signed `.attestation.jsonl` |
+| Publish | `tools/release.py TAG DIRECTORY` | Exact tested artifacts and attestations → draft GitHub release |
 
-Linux amd64 uses upstream Wine. Linux ARM64 adds the FEX registry entries.
-macOS applies 17 focused Wine patches, retaining their authorship and original
-commit IDs. See [patch provenance](patches/PROVENANCE.md). FEX is built twice:
-an ARM64EC module for x64 code and an ARM64 WoW64 module for i386 code. Both ship
-inside the ARM64 runtime rather than as separate guest-specific archives.
+Build does no packaging or runtime testing. Package does no compilation or ABI
+testing. Publication downloads the workflow artifacts; it never rebuilds them.
 
-## Build
+`tools/build.py` owns source preparation, the Linux sysroot or macOS SDK setup,
+and compilation. `build-wine.sh` contains Wine's configure flags;
+`build-fex.sh` builds the required ARM64EC and WoW64 modules on ARM64 executors.
+FEX is a source-built dependency included in the Wine install tree.
 
-Build on a native executor of the artifact CPU. Python 3.12+ is required.
-Intermediate files and downloaded inputs live under `.work/`; `out/` holds
-distribution archives and reports.
+Build directories have ordinary, predictable names. Use a fresh `--work`
+directory for a rebuild; failed builds and test logs remain available for
+inspection. Downloads are cached by verified SHA-256. There is no build cache
+key derived from documentation or machine package inventories.
 
-Local builds and GitHub Actions use the same entry point. On a native Linux
-executor with Docker installed, from the repository root:
+## Local commands
+
+Use a native executor of the artifact CPU. Python 3.12+ is required. Run from
+the repository root. For Linux:
 
 ```sh
-python3 tools/build-distribution.py linux-amd64 --serial 1
-# On a native ARM64 Linux executor:
-python3 tools/build-distribution.py linux-arm64 --serial 1
+docker build -t wine-builder .
+wine_platform=linux-amd64 # linux-arm64 on a native ARM64 executor
+wine_exec=tools/in-linux-container.sh
 ```
 
-The container uses a pinned Ubuntu base image. The compiler's target sysroot is
-assembled from pinned CentOS 7 glibc 2.17 RPMs, without installing those RPMs on
-the builder. amd64 additionally uses the matching static GCC unwinder to avoid
-the newer `_dl_find_object` dependency. Wine still dynamically links the host's
-glibc and its own Unix modules. It is not a static executable.
-
-macOS ARM64, with Xcode command-line tools and Homebrew available:
+For macOS ARM64, with Xcode command-line tools and Homebrew:
 
 ```sh
 brew install bison cmake ninja python@3.14 zstd
-python3 tools/build-distribution.py macos-arm64 --serial 1
+wine_platform=macos-arm64
+wine_exec=
 ```
 
-The native compiler is Apple Clang; the pinned LLVM-MinGW compiler produces PE
-modules and FEX. No compiler runtime rebuild is needed. Build output names
-include a recipe/input fingerprint. Each completed build writes `build.json`
-alongside its source, build, install, and log directories. The distribution
-command builds, packages, and tests the complete artifact set in `out/`.
-Use `--output` for a fresh output directory when repeating a local build;
-existing artifact versions are never overwritten.
-
-## Package and qualify
-
-The distribution command runs qualification automatically. To invoke packaging
-and qualification separately, use the same builder/path layout that produced
-`build.json`:
+Then run the same individual operations used by CI:
 
 ```sh
-python3 tools/qualify.py .work/macos-arm64/BUILD_ID/build.json --output out
+$wine_exec python3 -m unittest discover -s tests -p '*_test.py'
+$wine_exec python3 tests/source-preparation.py
+$wine_exec python3 tools/build.py "$wine_platform" --jobs 4
+$wine_exec python3 tools/package.py ".work/$wine_platform" --serial 1
+wine_artifact="out/wine-$wine_platform-11.20.1.tar.gz"
+$wine_exec python3 tests/artifacts.py "$wine_artifact" --platform "$wine_platform"
+$wine_exec python3 tests/build.py ".work/$wine_platform"
+$wine_exec python3 tests/runtime.py "$wine_artifact" ".work/$wine_platform/fixtures"
 ```
 
-On Linux, invoke that command inside the build container using the build path
-under `/work` and `--output /out`. Qualification audits native dependencies,
-packages the archive, extracts it at a different path containing spaces, and
-tests the extracted runtime. It exercises every advertised guest CPU, including
-cross-CPU children, DLL loading, threads, Unicode/empty arguments, filesystem
-output and exit codes, plus upstream Windows Ninja builds.
+On Linux, run the compatibility test from the host; it starts its own pinned
+runtime container without mounting the build/install tree:
 
-Linux CI also tests the extracted archive on CentOS 7 (glibc 2.17), with the
-host Python test driver operating a container. No Python installation is
-required in the runtime image. `en_US.UTF-8` is used there; CentOS 7 does not
-provide `C.UTF-8`.
+```sh
+python3 tests/compatibility.py "$wine_artifact" ".work/$wine_platform/fixtures"
+```
 
-Archives contain `bin/wine`, `bin/wineserver`, Wine's complete runtime tree,
-license notices, and `manifest.json` directly at the archive root. No wrapper
-directory or `strip_prefix` is required. Keep the directory layout intact. Use a fresh
-`WINEPREFIX` for independent executions; Wine's prefix is mutable runtime state.
+The Linux Docker image supplies build tools. `in-linux-container.sh` only runs
+the requested operation with the invoking user's UID/GID and mounted checkout.
+Compilation happens during `docker run`, rather than QEMU's `docker build`, so
+Actions can expose packaging and tests separately and retain ordinary files
+between stages. macOS uses the native runner and Apple Clang.
+
+## Verification and compatibility
+
+Artifact tests check both compression formats, checksums, root layout,
+corresponding sources, executable permissions, native architecture, allowed
+libraries, interpreter paths, and relative symlinks/loader search paths.
+Linux GLIBC symbol versions cannot exceed 2.17. Every Mach-O deployment minimum
+must fit the declared target. Audit records belong to the artifact-test report,
+not the package manifest.
+
+Runtime tests extract the archive elsewhere, including paths with spaces, and
+use fresh prefixes. They exercise all advertised guest CPUs, cross-CPU child
+processes, DLL loading, threads, Unicode/empty arguments, filesystem output,
+exit codes, and upstream Windows Ninja. The compatibility test repeats the
+fixtures in CentOS 7 userspace; it does not establish an old Linux kernel floor.
+
+The Linux build sysroot comes from pinned CentOS 7 RPMs. amd64 uses the matching
+static GCC unwinder to avoid a newer glibc dependency. Wine dynamically links
+the executor's glibc and its own Unix modules; it is not fully static.
+
+**macOS 26.5 is an imposed deployment target, not a demonstrated intrinsic
+Wine/FEX requirement.** Build metadata records that target and the actual Xcode
+SDK version separately. Runtime reports record the OS used for testing. CI's
+`macos-26` image can be newer than 26.5; passing there does not prove operation
+on 26.5 or any earlier release. The loader patch's 11.0 default does not qualify
+the complete runtime. Lowering the target requires a separate rebuild and
+compatibility test effort.
+
+## Updating and releasing
+
+The initial recipe pins Wine **11.20** (a development release), LLVM-MinGW
+**20261020**, and MetalSharp's FEX fork. `sources.json` contains exact revisions,
+URLs and checksums, including FEX dependencies and test inputs. Linux amd64 uses
+upstream Wine; Linux ARM64 adds FEX registration; macOS applies the explicit
+patch series described in [patch provenance](patches/PROVENANCE.md).
+
+Update those pins and checksums, review/rebase patches, and run the three native
+executors. Commit the recipe before a release build. Each build preserves its
+recipe files and records the Git commit, dirty-checkout status, source pins,
+compiler and relevant SDK information. Release publication rejects dirty builds.
+Host build packages can change, so byte-identical rebuilds are not claimed.
+
+Tags use `<wine-version>.<artifact-serial>`. Increment the serial for a recipe
+change without a Wine version change. Arbitrary version overrides and historical
+backfills are not supported.
+
+```sh
+git tag 11.20.1
+git push origin 11.20.1
+# Retry a release workflow at the existing tag:
+gh workflow run release.yml --ref 11.20.1 -f tag_name=11.20.1
+```
+
+CI and release workflows share `reusable-build.yml`. The release workflow
+validates the tag, runs the stages, and passes their artifacts to a publication
+job. Public releases require the signed provenance bundle for each executor.
+Pull requests run checks without attestation.
+
+For an upload failure, use **Re-run failed jobs** to retain the original build
+artifacts. Existing assets are accepted only if their bytes match. Conflicting
+assets require a new serial. Releases remain **drafts** while macOS signing and
+notarization are outstanding; publishing is a separate explicit decision.
+
+## Consumer contract
+
+Names are `wine-<os>-<cpu>-<wine-version>.<serial>.tar.gz` and `.tar.zst`.
+Both contain the same normalized tar bytes and have `.sha256` companions.
+Source archives insert `-sources` before `.tar`, containing `wine/`, optional
+`fex/`, the exact `recipe/`, and `manifest.json`.
+
+Extract the complete runtime archive. `bin/wine`, `bin/wineserver`, `lib/wine/`,
+notices and `manifest.json` are at its root; no `strip_prefix` is needed.
+Schema version 1 records executor OS/CPU, Windows guest CPUs, requirements,
+relative executable paths, Wine version, artifact serial and source/build
+provenance. The manifest is also a separate release asset.
 
 ```sh
 export WINEPREFIX="$PWD/prefix"
@@ -102,59 +169,7 @@ export WINESERVER="$PWD/wine/bin/wineserver"
 "$WINESERVER" -w
 ```
 
-## Release updates
-
-Update the source/compiler/dependency pins and checksums in `sources.json`,
-review/rebase the patch series, then run the native three-platform build matrix.
-Arbitrary upstream-version overrides and historical backfills are not supported.
-Do not point a release at a moving branch. Increment the artifact serial for a
-recipe change without a Wine version change.
-
-Tags have the form `<wine-version>.<artifact-serial>`, for example `11.20.1`
-for Wine 11.20, serial 1. Serial 0 is also valid. CI and release entry points
-call `reusable-build.yml`; releases use `reusable-release.yml` to require all
-three executors, verify attestations, and assemble a **draft** GitHub release.
-Publishing remains an explicit step while macOS signing is outstanding.
-
-```sh
-git tag 11.20.1
-git push origin 11.20.1
-# Start a fresh release attempt at the same tagged recipe:
-gh workflow run release.yml --ref 11.20.1 -f tag_name=11.20.1
-```
-
-For a failed upload, use GitHub's **Re-run failed jobs** to retain the original
-build artifacts. Uploads retry transient failures and accept existing assets
-only when their bytes match. They never clobber conflicting assets or add missing
-assets to a published release. A fresh build may differ; give changed artifacts
-a new serial instead of attempting to replace an existing version.
-
-Release attestations are mandatory. Pull-request builds run without attestation;
-trusted CI builds and releases generate it. Every executor exports its signed
-`.attestation.jsonl` bundle alongside the archives, checksums and reports.
-
-## Consumer contract
-
-Runtime names are `wine-<os>-<cpu>-<wine-version>.<serial>.tar.gz` and `.tar.zst`.
-The supported executor pairs are `linux-amd64`, `linux-arm64`, and `macos-arm64`.
-Both compression formats contain the same normalized tar stream, verified during
-packaging. Each has a `.sha256` file. Source companions insert `-sources` before
-`.tar`; they contain `wine/`, optional `fex/`, `recipe/` and `manifest.json`.
-
-For example, once release `11.20.1` is published:
-
-```text
-https://github.com/hermeticbuild/wine-prebuilt/releases/download/11.20.1/wine-linux-arm64-11.20.1.tar.zst
-```
-
-Consumers pin the release URL and checksum, extract the whole archive, and use
-`bin/wine` and `bin/wineserver`. Schema version 1 of `manifest.json` records
-`executor.os`, `executor.cpu`, `windows_cpus`, `requirements`, `executables`,
-`artifact_version`, separate Wine version/serial, source pins and the recipe
-fingerprint. The same manifest is available as a `.manifest.json` release asset.
-Bazel setup and platform/toolchain selection belong in `rules_wine`.
-
-Verify a download's provenance with its matching executor bundle:
+Verify provenance with the matching bundle:
 
 ```sh
 gh attestation verify wine-linux-arm64-11.20.1.tar.zst \
@@ -163,24 +178,17 @@ gh attestation verify wine-linux-arm64-11.20.1.tar.zst \
   --signer-workflow hermeticbuild/wine-prebuilt/.github/workflows/reusable-build.yml
 ```
 
-Ship the matching source archives and checksum files with every runtime archive.
-See [distribution requirements](DISTRIBUTION.md). The recipe normalizes archive
-metadata, but does not claim byte-identical binaries: runner SDKs and host build
-packages still vary. Their identities belong in build reports.
+Ship the matching source archives and notices with the runtime; see
+[distribution requirements](DISTRIBUTION.md).
 
 ## Limitations
 
-- Headless profile: graphics drivers, audio, printing, multimedia, USB and other
-  optional integrations are disabled. This is not a gaming Wine distribution.
-- GnuTLS/Kerberos integrations are disabled. Windows programs requiring Wine's
-  HTTPS or domain-authentication implementation may not work.
-- No macOS amd64 build; no Rosetta fallback; no ARM32 Windows guest.
-- macOS FEX integration is young. Initial ARM64/x64 tests cover command-line
-  build tools, not arbitrary PE loading or every Windows memory-layout behavior.
-- macOS i386 is unqualified and fails the initial startup test. Unsigned build
-  archives are not a completed Gatekeeper/notarization distribution solution.
-- Wine is not a security sandbox. A Windows process inherits the executor's
-  filesystem and network access. Prefix isolation does not change that.
-- A glibc ABI audit covers linked symbols, not every kernel/API requirement.
-  CentOS 7 userspace tests run on the CI host kernel; an actual old-kernel floor
-  has not been established.
+- Headless profile: GUI, audio, printing, multimedia and other optional
+  integrations are disabled. GnuTLS/Kerberos integrations are also disabled.
+- No macOS amd64 build, Rosetta fallback, ARM32 guest, or qualified macOS i386
+  support. ARM64/x64 success does not establish that arbitrary Windows programs
+  work. macOS FEX integration remains young.
+- macOS archives are unsigned and not notarized. Passing on a build machine
+  does not establish Gatekeeper acceptance of a quarantined download.
+- Wine is not a security sandbox; fresh prefixes isolate mutable state, not
+  filesystem or network access.

@@ -39,7 +39,6 @@ jobs:
       - name: Verify provenance and assemble draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          SERIAL: ${{ inputs.artifact_serial }}
           TAG: ${{ inputs.release_tag }}
         run: |
-          python3 tools/release.py "$TAG" out --serial "$SERIAL" --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+          python3 tools/release.py "$TAG" out --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"

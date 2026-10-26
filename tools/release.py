@@ -3,17 +3,17 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import time
 
-from distribution import FORMATS, PLATFORMS, basename, sha256, version
+from distribution import FORMATS, PLATFORMS, basename, sha256, version, serial_from_tag
 from fetch import ROOT
-import recipe
 
 
-def validate_assets(directory, wine, serial):
+def validate_assets(directory, wine, serial, commit):
     expected = set()
     for platform, specification in PLATFORMS.items():
         name = basename(platform, wine, serial)
@@ -31,13 +31,19 @@ def validate_assets(directory, wine, serial):
         manifest = json.loads((directory / f"{name}.manifest.json").read_text())
         if (manifest["platform"] != platform or manifest["wine"] != wine or
                 manifest["artifact_version"] != version(wine, serial) or
-                manifest["recipe_sha256"] != recipe.digest(ROOT)):
+                manifest["build"]["recipe_commit"] != commit or manifest["build"]["recipe_dirty"]):
             raise ValueError(f"manifest does not match release recipe: {name}")
         qualification = json.loads((directory / f"{name}.qualification.json").read_text())
         if (qualification["status"] != "passed" or qualification["archives"] != archive_hashes or
                 qualification["guests"] != specification["guests"]):
             raise ValueError(f"archives are not qualified: {name}")
-        expected.update((f"{name}.manifest.json", f"{name}.qualification.json", f"{name}.attestation.jsonl"))
+        checks = json.loads((directory / f"{name}.artifacts.json").read_text())
+        all_hashes = {name + kind + extension: sha256(directory / (name + kind + extension))
+                      for kind in ("", "-sources") for extension in FORMATS}
+        if checks["status"] != "passed" or checks["archives"] != all_hashes:
+            raise ValueError(f"artifact checks do not match release bytes: {name}")
+        expected.update((f"{name}.manifest.json", f"{name}.artifacts.json",
+                         f"{name}.qualification.json", f"{name}.attestation.jsonl"))
         if not (directory / f"{name}.attestation.jsonl").stat().st_size:
             raise ValueError(f"empty attestation bundle: {name}")
         if platform.startswith("linux-"):
@@ -65,20 +71,27 @@ def compare_existing(path, digest):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tag")
-    parser.add_argument("directory", type=Path)
-    parser.add_argument("--serial", type=int, required=True)
+    parser.add_argument("directory", type=Path, nargs="?", help="Previously built, tested and attested assets")
+    parser.add_argument("--check-tag", action="store_true", help="Validate tag before building; emit its serial")
     parser.add_argument("--commit", required=True)
     parser.add_argument("--repository", required=True)
     args = parser.parse_args()
     wine = json.loads((ROOT / "sources.json").read_text())["wine"]["version"]
-    if args.tag != version(wine, args.serial):
-        parser.error("tag must equal the pinned Wine version plus the artifact serial")
-    assets = validate_assets(args.directory, wine, args.serial)
+    serial = serial_from_tag(args.tag, wine)
     revision = gh("api", f"repos/{args.repository}/commits/{args.tag}", "--jq", ".sha").strip()
     if revision != args.commit:
         parser.error("release tag does not point to the build commit")
+    if args.check_tag:
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
+                stream.write(f"serial={serial}\ntag={args.tag}\n")
+        print(serial)
+        return
+    if args.directory is None:
+        parser.error("publication requires the directory of tested artifacts")
+    assets = validate_assets(args.directory, wine, serial, args.commit)
     for platform in PLATFORMS:
-        name = basename(platform, wine, args.serial)
+        name = basename(platform, wine, serial)
         bundle = args.directory / f"{name}.attestation.jsonl"
         for asset in assets:
             if asset.name.startswith(name + ".") or asset.name.startswith(name + "-sources."):

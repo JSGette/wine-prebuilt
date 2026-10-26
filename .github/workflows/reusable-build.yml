@@ -19,10 +19,13 @@ jobs:
         include:
           - platform: linux-amd64
             runner: ubuntu-24.04
+            execute: tools/in-linux-container.sh
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
+            execute: tools/in-linux-container.sh
           - platform: macos-arm64
             runner: macos-26
+            execute: ''
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     permissions:
@@ -32,6 +35,7 @@ jobs:
     env:
       PLATFORM: ${{ matrix.platform }}
       SERIAL: ${{ inputs.artifact_serial }}
+      EXECUTE: ${{ matrix.execute }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -39,9 +43,40 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install bison cmake ninja python@3.14 zstd
 
-      - name: Build and qualify
-        id: build
-        run: python3 tools/build-distribution.py "$PLATFORM" --serial "$SERIAL"
+      - name: Prepare Linux build environment
+        if: runner.os == 'Linux'
+        run: docker build -t wine-builder .
+
+      - name: Test distribution tooling and source preparation
+        run: |
+          $EXECUTE python3 -m unittest discover -s tests -p '*_test.py'
+          $EXECUTE python3 tests/source-preparation.py
+
+      - name: Build Wine and required ARM64 FEX modules
+        run: $EXECUTE python3 tools/build.py "$PLATFORM" --jobs 4
+
+      - name: Package runtime and corresponding sources
+        id: package
+        run: $EXECUTE python3 tools/package.py ".work/$PLATFORM" --serial "$SERIAL"
+
+      - name: Check artifacts — layout, architecture, relocation and ABI
+        env:
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: $EXECUTE python3 tests/artifacts.py "$ARTIFACT" --platform "$PLATFORM"
+
+      - name: Build Windows test fixtures
+        run: $EXECUTE python3 tests/build.py ".work/$PLATFORM"
+
+      - name: Test packaged runtime — all supported Windows guest CPUs
+        env:
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: $EXECUTE python3 tests/runtime.py "$ARTIFACT" ".work/$PLATFORM/fixtures"
+
+      - name: Test compatibility — glibc 2.17 userspace
+        if: runner.os == 'Linux'
+        env:
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: python3 tests/compatibility.py "$ARTIFACT" ".work/$PLATFORM/fixtures"
 
       - name: Attest distributions and reports
         if: inputs.attest
@@ -54,7 +89,7 @@ jobs:
         if: inputs.attest
         env:
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
-          NAME: ${{ steps.build.outputs.attestation_name }}
+          NAME: ${{ steps.package.outputs.attestation_name }}
         run: cp "$BUNDLE" "out/$NAME"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -74,6 +109,5 @@ jobs:
             .work/**/build.json
             .work/**/wine-build/*.log
             .work/**/fex-build/**/*.log
-            .work/**/qualification/**/*.log
-            glibc217*/logs/**/*.log
+            .work/tests/**/*.log
           include-hidden-files: true

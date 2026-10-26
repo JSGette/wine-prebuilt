@@ -22,12 +22,13 @@ Ninja downloads are test inputs and are not included in runtime archives.
 
 1. Verify all download checksums and retain exact source revisions and patches.
 2. Audit every ELF/Mach-O for architecture, runtime dependencies and relative
-   search paths. Linux GLIBC version references must not exceed 2.17.
+   search paths in the packaged artifacts. Linux GLIBC version references must
+   not exceed 2.17; Mach-O deployment minima must fit the declared target.
 3. Verify the two compression formats contain identical tar bytes; test the final
    extracted archive at a different path, with fresh prefixes.
    Test all advertised guest CPUs, not merely `wine --version`.
 4. Run Linux checks in both the current builder and glibc 2.17 userspace.
-5. Attach the runtime, source, checksums, manifest, qualification reports and
+5. Attach the runtime, source, checksums, manifest, artifact/runtime test reports and
    attestation bundles. Verify signatures, build workflow identity and source
    commit before release upload. Existing assets must match byte-for-byte;
    conflicting assets require a new serial, never an overwrite.
@@ -36,6 +37,8 @@ Ninja downloads are test inputs and are not included in runtime archives.
    acceptance of a quarantined download on another machine.
 
 The initial macOS archive is a command-line runtime, not a signed/notarized app.
+Its 26.5 deployment target is a build choice. The build SDK and tested OS version
+are recorded separately; no test of an older macOS minimum is implied.
 ARM64 and x64 tests require neither Rosetta nor a restricted provisioning profile.
 i386 needs separate work on low-address mappings and Apple's cross-architecture
 entitlement. Any later signing pipeline must sign the final layout, preserve

@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import platform
 from pathlib import Path
 import subprocess
 import sys
@@ -10,11 +11,11 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-from package import archive, verify_archive_pair
+from package import archive
+from artifacts import verify_archive_pair, audit
 from distribution import FORMATS, PLATFORMS, basename, serial_from_tag, sha256
 from fetch import ROOT
 from release import compare_existing, validate_assets
-import recipe
 
 
 class ArchivesTest(unittest.TestCase):
@@ -49,6 +50,36 @@ class ArchivesTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "different tar streams"):
                 verify_archive_pair(output)
 
+    def test_symlink_cannot_escape_the_distribution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "bad-link").symlink_to("../outside")
+            with self.assertRaisesRegex(ValueError, "non-relocatable symlink"):
+                audit(root, "linux-amd64")
+
+    @unittest.skipUnless(platform.system() == "Darwin", "requires the native Mach-O tools")
+    def test_macos_binary_cannot_require_more_than_declared_deployment_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "minimal.c"
+            source.write_text("int exported(void) { return 1; }\n")
+            subprocess.run(["/usr/bin/clang", "-dynamiclib", "-mmacosx-version-min=26.6",
+                            str(source), "-o", str(root / "minimal.dylib")], check=True)
+            with self.assertRaisesRegex(ValueError, "exceeds declared deployment target"):
+                audit(root, "macos-arm64")
+
+    @unittest.skipUnless(platform.system() == "Linux", "requires the native ELF tools")
+    def test_origin_search_path_cannot_escape_the_distribution(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "minimal.c"
+            source.write_text("int exported(void) { return 1; }\n")
+            subprocess.run(["cc", "-shared", "-nostdlib", "-Wl,-rpath,$ORIGIN/../../outside",
+                            str(source), "-o", str(root / "minimal.so")], check=True)
+            executor = "linux-amd64" if platform.machine() == "x86_64" else "linux-arm64"
+            with self.assertRaisesRegex(ValueError, "non-relocatable ELF search path"):
+                audit(root, executor)
+
 
 class ReleaseTest(unittest.TestCase):
     def setUp(self):
@@ -69,9 +100,13 @@ class ReleaseTest(unittest.TestCase):
                     if not kind:
                         archives[path.name] = digest
             self.write_json(name + ".manifest.json", {"platform": platform, "wine": "11.20",
-                            "artifact_version": "11.20.1", "recipe_sha256": recipe.digest(ROOT)})
+                            "artifact_version": "11.20.1",
+                            "build": {"recipe_commit": "abc123", "recipe_dirty": False}})
             self.write_json(name + ".qualification.json", {"status": "passed", "archives": archives,
                             "guests": spec["guests"]})
+            self.write_json(name + ".artifacts.json", {"status": "passed", "archives": {
+                name + kind + extension: sha256(self.output / (name + kind + extension))
+                for kind in ("", "-sources") for extension in FORMATS}})
             (self.output / (name + ".attestation.jsonl")).write_text("verified separately by gh\n")
             if platform.startswith("linux-"):
                 self.write_json(name + ".tar.gz.glibc217.json", {"status": "passed",
@@ -81,18 +116,18 @@ class ReleaseTest(unittest.TestCase):
         (self.output / name).write_text(json.dumps(value))
 
     def test_complete_three_executor_release_is_accepted(self):
-        assets = validate_assets(self.output, "11.20", 1)
-        self.assertEqual(len(assets), 35)
+        assets = validate_assets(self.output, "11.20", 1, "abc123")
+        self.assertEqual(len(assets), 38)
 
     def test_modified_archive_is_rejected_before_upload(self):
         (self.output / "wine-linux-amd64-11.20.1.tar.gz").write_bytes(b"corrupt")
         with self.assertRaisesRegex(ValueError, "checksum mismatch"):
-            validate_assets(self.output, "11.20", 1)
+            validate_assets(self.output, "11.20", 1, "abc123")
 
     def test_missing_attestation_is_rejected_before_upload(self):
         (self.output / "wine-macos-arm64-11.20.1.attestation.jsonl").unlink()
         with self.assertRaises(FileNotFoundError):
-            validate_assets(self.output, "11.20", 1)
+            validate_assets(self.output, "11.20", 1, "abc123")
 
     def test_qualification_for_another_archive_is_rejected(self):
         name = "wine-linux-arm64-11.20.1.qualification.json"
@@ -100,13 +135,26 @@ class ReleaseTest(unittest.TestCase):
         report["archives"]["wine-linux-arm64-11.20.1.tar.gz"] = "0" * 64
         self.write_json(name, report)
         with self.assertRaisesRegex(ValueError, "not qualified"):
-            validate_assets(self.output, "11.20", 1)
+            validate_assets(self.output, "11.20", 1, "abc123")
 
     def test_conflicting_published_asset_cannot_be_overwritten(self):
         path = self.output / "wine-linux-amd64-11.20.1.tar.gz"
         compare_existing(path, "sha256:" + sha256(path))
         with self.assertRaisesRegex(ValueError, "conflicting release asset"):
             compare_existing(path, "sha256:" + "0" * 64)
+
+    def test_dirty_recipe_is_not_publishable(self):
+        name = "wine-linux-amd64-11.20.1.manifest.json"
+        manifest = json.loads((self.output / name).read_text())
+        manifest["build"]["recipe_dirty"] = True
+        self.write_json(name, manifest)
+        with self.assertRaisesRegex(ValueError, "manifest does not match release recipe"):
+            validate_assets(self.output, "11.20", 1, "abc123")
+
+    def test_missing_artifact_checks_prevent_publication(self):
+        (self.output / "wine-linux-amd64-11.20.1.artifacts.json").unlink()
+        with self.assertRaises(FileNotFoundError):
+            validate_assets(self.output, "11.20", 1, "abc123")
 
     def test_tag_keeps_wine_version_separate_from_serial(self):
         self.assertEqual(serial_from_tag("11.20.0", "11.20"), 0)
