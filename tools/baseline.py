@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -33,6 +34,7 @@ def main():
     fixtures = args.fixtures.resolve()
     container = subprocess.check_output([
         "docker", "run", "--rm", "--detach", "--network", "none",
+        "--user", f"{os.getuid()}:{os.getgid()}",
         "--volume", f"{work}:{work}", "--volume", f"{fixtures}:{fixtures}:ro",
         IMAGES[args.platform], "sleep", "infinity"], text=True).strip()
     try:
