@@ -1,7 +1,7 @@
 # Distribution contents and release gates
 
-Each runtime archive must be accompanied by its matching `-sources.tar.gz` and
-SHA-256 files. The source archive includes the exact patched Wine source, the
+Each runtime is provided as `.tar.gz` and `.tar.zst`, accompanied by matching
+`-sources.tar.gz` and `-sources.tar.zst` archives and SHA-256 files. The source archive includes the exact patched Wine source, the
 populated FEX source and dependencies when used, and the build recipes/patches.
 Do not redistribute only a binary while dropping these companion artifacts.
 
@@ -23,10 +23,14 @@ Ninja downloads are test inputs and are not included in runtime archives.
 1. Verify all download checksums and retain exact source revisions and patches.
 2. Audit every ELF/Mach-O for architecture, runtime dependencies and relative
    search paths. Linux GLIBC version references must not exceed 2.17.
-3. Test the final extracted archive at a different path, with fresh prefixes.
+3. Verify the two compression formats contain identical tar bytes; test the final
+   extracted archive at a different path, with fresh prefixes.
    Test all advertised guest CPUs, not merely `wine --version`.
 4. Run Linux checks in both the current builder and glibc 2.17 userspace.
-5. Attach the runtime, source, checksums, qualification reports and provenance.
+5. Attach the runtime, source, checksums, manifest, qualification reports and
+   attestation bundles. Verify signatures, build workflow identity and source
+   commit before release upload. Existing assets must match byte-for-byte;
+   conflicting assets require a new serial, never an overwrite.
 6. Review macOS signing before promoting an unsigned draft to a user-facing
    release. Qualification on a build machine does not establish Gatekeeper
    acceptance of a quarantined download on another machine.

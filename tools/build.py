@@ -64,6 +64,7 @@ def main():
     parser.add_argument("--sysroot", type=Path)
     parser.add_argument("--work", type=Path, default=ROOT / ".work")
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--result-file", type=Path, help="Write the completed build.json path here")
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
@@ -126,6 +127,8 @@ def main():
         "sysroot": str(args.sysroot.resolve()) if args.sysroot else None,
     }, indent=2) + "\n")
     print(install)
+    if args.result_file:
+        args.result_file.write_text(str(directory / "build.json") + "\n")
 
 
 if __name__ == "__main__":

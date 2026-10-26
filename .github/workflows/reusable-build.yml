@@ -1,0 +1,76 @@
+name: Reusable build
+on:
+  workflow_call:
+    inputs:
+      artifact_serial:
+        type: string
+        default: '1'
+      attest:
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      SERIAL: ${{ inputs.artifact_serial }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install bison cmake ninja python@3.14 zstd
+
+      - name: Build and qualify
+        id: build
+        run: python3 tools/build-distribution.py "$PLATFORM" --serial "$SERIAL"
+
+      - name: Attest distributions and reports
+        if: inputs.attest
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: out/*
+
+      - name: Preserve attestation bundle
+        if: inputs.attest
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          NAME: ${{ steps.build.outputs.attestation_name }}
+        run: cp "$BUNDLE" "out/$NAME"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wine-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-${{ matrix.platform }}
+          path: |
+            .work/**/wine-build/*.log
+            .work/**/fex-build/**/*.log
+            .work/**/qualification/**/*.log
+            glibc217*/logs/**/*.log
+          include-hidden-files: true

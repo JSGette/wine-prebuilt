@@ -38,15 +38,13 @@ Build on a native executor of the artifact CPU. Python 3.12+ is required.
 Intermediate files and downloaded inputs live under `.work/`; `out/` holds
 distribution archives and reports.
 
-Linux, from the repository root:
+Local builds and GitHub Actions use the same entry point. On a native Linux
+executor with Docker installed, from the repository root:
 
 ```sh
-docker build -t wine-prebuilt-builder .
-mkdir -p .work out
-docker run --rm \
-  -v "$PWD:/src:ro" -v "$PWD/.work:/work" -v "$PWD/out:/out" \
-  -e WINE_BUILD_WORK=/work -e JOBS=4 \
-  wine-prebuilt-builder bash tools/build-linux.sh
+python3 tools/build-distribution.py linux-amd64 --serial 1
+# On a native ARM64 Linux executor:
+python3 tools/build-distribution.py linux-arm64 --serial 1
 ```
 
 The container uses a pinned Ubuntu base image. The compiler's target sysroot is
@@ -58,18 +56,23 @@ glibc and its own Unix modules. It is not a static executable.
 macOS ARM64, with Xcode command-line tools and Homebrew available:
 
 ```sh
-brew install bison cmake ninja python@3.14
-python3 tools/build.py macos-arm64 --jobs 4
+brew install bison cmake ninja python@3.14 zstd
+python3 tools/build-distribution.py macos-arm64 --serial 1
 ```
 
 The native compiler is Apple Clang; the pinned LLVM-MinGW compiler produces PE
 modules and FEX. No compiler runtime rebuild is needed. Build output names
 include a recipe/input fingerprint. Each completed build writes `build.json`
-alongside its source, build, install, and log directories.
+alongside its source, build, install, and log directories. The distribution
+command builds, packages, and tests the complete artifact set in `out/`.
+Use `--output` for a fresh output directory when repeating a local build;
+existing artifact versions are never overwritten.
 
 ## Package and qualify
 
-Run inside the same builder/path layout that produced `build.json`:
+The distribution command runs qualification automatically. To invoke packaging
+and qualification separately, use the same builder/path layout that produced
+`build.json`:
 
 ```sh
 python3 tools/qualify.py .work/macos-arm64/BUILD_ID/build.json --output out
@@ -88,7 +91,8 @@ required in the runtime image. `en_US.UTF-8` is used there; CentOS 7 does not
 provide `C.UTF-8`.
 
 Archives contain `bin/wine`, `bin/wineserver`, Wine's complete runtime tree,
-license notices, and a manifest. Keep the directory layout intact. Use a fresh
+license notices, and `manifest.json` directly at the archive root. No wrapper
+directory or `strip_prefix` is required. Keep the directory layout intact. Use a fresh
 `WINEPREFIX` for independent executions; Wine's prefix is mutable runtime state.
 
 ```sh
@@ -102,11 +106,64 @@ export WINESERVER="$PWD/wine/bin/wineserver"
 
 Update the source/compiler/dependency pins and checksums in `sources.json`,
 review/rebase the patch series, then run the native three-platform build matrix.
+Arbitrary upstream-version overrides and historical backfills are not supported.
 Do not point a release at a moving branch. Increment the artifact serial for a
-recipe change without a Wine version change. The workflow prepares a **draft**
-GitHub release after all matrix jobs pass; publishing remains an explicit step.
+recipe change without a Wine version change.
 
-Ship the matching source archive and checksum files with every runtime archive.
+Tags have the form `<wine-version>.<artifact-serial>`, for example `11.20.1`
+for Wine 11.20, serial 1. Serial 0 is also valid. CI and release entry points
+call `reusable-build.yml`; releases use `reusable-release.yml` to require all
+three executors, verify attestations, and assemble a **draft** GitHub release.
+Publishing remains an explicit step while macOS signing is outstanding.
+
+```sh
+git tag 11.20.1
+git push origin 11.20.1
+# Start a fresh release attempt at the same tagged recipe:
+gh workflow run release.yml --ref 11.20.1 -f tag_name=11.20.1
+```
+
+For a failed upload, use GitHub's **Re-run failed jobs** to retain the original
+build artifacts. Uploads retry transient failures and accept existing assets
+only when their bytes match. They never clobber conflicting assets or add missing
+assets to a published release. A fresh build may differ; give changed artifacts
+a new serial instead of attempting to replace an existing version.
+
+Release attestations are mandatory. Pull-request builds run without attestation;
+trusted CI builds and releases generate it. Every executor exports its signed
+`.attestation.jsonl` bundle alongside the archives, checksums and reports.
+
+## Consumer contract
+
+Runtime names are `wine-<os>-<cpu>-<wine-version>.<serial>.tar.gz` and `.tar.zst`.
+The supported executor pairs are `linux-amd64`, `linux-arm64`, and `macos-arm64`.
+Both compression formats contain the same normalized tar stream, verified during
+packaging. Each has a `.sha256` file. Source companions insert `-sources` before
+`.tar`; they contain `wine/`, optional `fex/`, `recipe/` and `manifest.json`.
+
+For example, once release `11.20.1` is published:
+
+```text
+https://github.com/hermeticbuild/wine-prebuilt/releases/download/11.20.1/wine-linux-arm64-11.20.1.tar.zst
+```
+
+Consumers pin the release URL and checksum, extract the whole archive, and use
+`bin/wine` and `bin/wineserver`. Schema version 1 of `manifest.json` records
+`executor.os`, `executor.cpu`, `windows_cpus`, `requirements`, `executables`,
+`artifact_version`, separate Wine version/serial, source pins and the recipe
+fingerprint. The same manifest is available as a `.manifest.json` release asset.
+Bazel setup and platform/toolchain selection belong in `rules_wine`.
+
+Verify a download's provenance with its matching executor bundle:
+
+```sh
+gh attestation verify wine-linux-arm64-11.20.1.tar.zst \
+  --repo hermeticbuild/wine-prebuilt \
+  --bundle wine-linux-arm64-11.20.1.attestation.jsonl \
+  --signer-workflow hermeticbuild/wine-prebuilt/.github/workflows/reusable-build.yml
+```
+
+Ship the matching source archives and checksum files with every runtime archive.
 See [distribution requirements](DISTRIBUTION.md). The recipe normalizes archive
 metadata, but does not claim byte-identical binaries: runner SDKs and host build
 packages still vary. Their identities belong in build reports.

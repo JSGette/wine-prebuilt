@@ -9,4 +9,5 @@ esac
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=${WINE_BUILD_WORK:-"$root/.work"}
 sysroot=$(python3 "$root/tools/prepare-sysroot.py" "$cpu" "$work/sysroots" --cache "$work/cache")
-python3 "$root/tools/build.py" "linux-$cpu" --work "$work" --sysroot "$sysroot" --jobs "${JOBS:-4}"
+python3 "$root/tools/build.py" "linux-$cpu" --work "$work" --sysroot "$sysroot" --jobs "${JOBS:-4}" \
+    --result-file "$work/linux-$cpu-result.txt"

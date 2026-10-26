@@ -8,12 +8,14 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import tarfile
 import tempfile
 
 from audit import audit
 from fetch import ROOT
 import recipe
+from distribution import FORMATS, PLATFORMS, basename, sha256, version
 
 
 def normalized(info):
@@ -26,11 +28,31 @@ def normalized(info):
 
 
 def archive(destination, entries):
-    with destination.open("xb") as raw:
-        with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
-            with tarfile.open(fileobj=compressed, mode="w|", dereference=False) as output:
-                for path, name in entries:
-                    output.add(path, arcname=name, filter=normalized)
+    """Compress one normalized tar stream into both release formats."""
+    zstd = destination.with_name(destination.name.removesuffix(".tar.gz") + ".tar.zst")
+    with tempfile.TemporaryFile(dir=destination.parent) as tar:
+        with tarfile.open(fileobj=tar, mode="w|", dereference=False) as output:
+            for path, name in entries:
+                output.add(path, arcname=name, filter=normalized)
+        tar.seek(0)
+        with destination.open("xb") as raw:
+            with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0) as compressed:
+                shutil.copyfileobj(tar, compressed)
+        tar.seek(0)
+        with zstd.open("xb") as raw:
+            subprocess.run(["zstd", "-q", "-T1", "-c"], stdin=tar, stdout=raw, check=True)
+    verify_archive_pair(destination)
+
+
+def verify_archive_pair(gzip_path):
+    zstd_path = gzip_path.with_name(gzip_path.name.removesuffix(".tar.gz") + ".tar.zst")
+    with gzip.open(gzip_path, "rb") as stream:
+        expected = hashlib.file_digest(stream, "sha256").hexdigest()
+    with subprocess.Popen(["zstd", "-dc", str(zstd_path)], stdout=subprocess.PIPE) as process:
+        actual = hashlib.file_digest(process.stdout, "sha256").hexdigest()
+        process.stdout.close()
+        if process.wait() != 0 or actual != expected:
+            raise ValueError(f"compression formats contain different tar streams: {gzip_path}")
 
 
 def copy_notices(source, destination):
@@ -47,23 +69,30 @@ def main():
     parser.add_argument("--serial", type=int, default=1)
     parser.add_argument("--output", type=Path, default=ROOT / "out")
     args = parser.parse_args()
-    if args.serial < 1:
-        parser.error("--serial must be positive")
+    if args.serial < 0:
+        parser.error("--serial must be nonnegative")
     build = json.loads(args.build.read_text())
     if recipe.digest(ROOT) != build["recipe_sha256"]:
         parser.error("recipe changed since this build; rebuild before packaging matching source/recipes")
     directory = args.build.resolve().parent
     runtime = Path(build["install"])
     report = audit(runtime, build["platform"])
-    name = f"wine-{build['wine']}-{args.serial}-{build['platform']}"
+    name = basename(build["platform"], build["wine"], args.serial)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     artifact = output / f"{name}.tar.gz"
     sources = output / f"{name}-sources.tar.gz"
-    if artifact.exists() or sources.exists():
+    paths = [output / (name + kind + extension) for kind in ("", "-sources") for extension in FORMATS]
+    if any(path.exists() for path in paths):
         parser.error("artifact already exists; use a new output directory or serial")
     manifest = {key: value for key, value in build.items() if key not in ("install", "toolchain", "sysroot")}
-    manifest.update(serial=args.serial, source_archive=sources.name, abi_audit=report)
+    os_name, cpu = build["platform"].split("-")
+    manifest.update(schema_version=1, serial=args.serial, artifact_version=version(build["wine"], args.serial),
+                    executor={"os": os_name, "cpu": cpu},
+                    windows_cpus=PLATFORMS[build["platform"]]["guests"],
+                    requirements=PLATFORMS[build["platform"]]["requirements"],
+                    executables={"wine": "bin/wine", "wineserver": "bin/wineserver"},
+                    source_archives=[name + "-sources" + extension for extension in FORMATS], abi_audit=report)
     with tempfile.TemporaryDirectory(prefix="package-", dir=directory) as temporary:
         staging = Path(temporary) / name
         # Hard links avoid duplicating large PE trees. No existing file is edited.
@@ -76,23 +105,22 @@ def main():
             if build["platform"] == "linux-amd64":
                 sysroot = Path(build["sysroot"])
                 copy_notices(sysroot / "usr/share/doc/gcc-4.8.5", notices / "gcc-sysroot")
-        source_entries = [(directory / "wine-source", name + "-sources/wine")]
+        source_entries = [(directory / "wine-source", "wine")]
         if build["fex"]:
             copy_notices(directory / "fex-source", notices / "fex")
-            source_entries.append((directory / "fex-source", name + "-sources/fex"))
+            source_entries.append((directory / "fex-source", "fex"))
         (staging / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
         shutil.copy2(ROOT / "DISTRIBUTION.md", staging / "DISTRIBUTION.md")
-        archive(artifact, [(staging, name)])
+        archive(artifact, [(staging, ".")])
         for entry in recipe.ENTRIES:
-            source_entries.append((ROOT / entry, name + "-sources/recipe/" + entry))
-        source_entries.append((staging / "manifest.json", name + "-sources/manifest.json"))
+            source_entries.append((ROOT / entry, "recipe/" + entry))
+        source_entries.append((staging / "manifest.json", "manifest.json"))
         archive(sources, source_entries)
+        shutil.copyfile(staging / "manifest.json", output / f"{name}.manifest.json")
     if recipe.digest(ROOT) != build["recipe_sha256"]:
         raise RuntimeError("Recipe changed during packaging; these artifacts are not qualified")
-    for path in (artifact, sources):
-        with path.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
-        path.with_name(path.name + ".sha256").write_text(f"{digest}  {path.name}\n")
+    for path in paths:
+        path.with_name(path.name + ".sha256").write_text(f"{sha256(path)}  {path.name}\n")
     print(artifact)
 
 
