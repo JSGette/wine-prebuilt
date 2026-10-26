@@ -20,7 +20,14 @@ available to an unsigned download.
 Linux ARM64 applies `linux-arm64-fex.patch`, containing only the
 `loader/wine.inf.in` hunk of patch 4: it registers
 the ARM64EC and WoW64 FEX modules. No Darwin changes are applied to Linux.
-Linux amd64 is unpatched.
+Both Linux builds apply `linux-address-space-probe.patch`, restoring the direct
+`mmap` probe from [Wine 10.0's `dlls/ntdll/unix/virtual.c`](https://github.com/wine-mirror/wine/blob/wine-10.0/dlls/ntdll/unix/virtual.c).
+Wine 11.20's replacement
+helper reports a relocated mapping as `EEXIST`; with the CentOS 7 headers, that
+misidentifies out-of-range addresses and requests a 32 GiB protection table.
+The patch preserves the older-header fallback without requiring a newer libc
+or kernel. It was reproduced with the unpatched archive under a 16 GiB data
+limit; the same packaged-runtime test is repeated after the fix.
 
 Preparation uses the standard `patch` tool with fuzz disabled. `git apply`
 can silently skip paths when an extracted source tree sits inside an ignored

@@ -1,0 +1,38 @@
+Subject: ntdll: Preserve mmap hint semantics when probing the address-space limit.
+
+Wine 11.20's anon_mmap_tryfixed() converts a relocated mapping into EEXIST.
+With the CentOS 7 headers (no MAP_FIXED_NOREPLACE), an out-of-range hint is
+therefore mistaken for an occupied, valid address. The resulting limit is
+0xffffffffffff0000 and the page-protection directory allocation is 32 GiB.
+
+Restore the direct mmap probe used by Wine 10.0, using host_page_size as
+required by current Wine. A relocated mapping below the hint does not prove
+that the requested address is valid. No new kernel or libc API is required.
+
+Reference: wine-10.0/dlls/ntdll/unix/virtual.c, get_host_addr_space_limit().
+
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -2368,14 +2368,19 @@ static void *get_host_addr_space_limit(void)
+     return (void *)0x7ffffe000000;
+ #elif defined _WIN64
++    unsigned int flags = MAP_PRIVATE | MAP_ANON;
+     UINT_PTR addr = (UINT_PTR)1 << 63;
+ 
++#ifdef MAP_FIXED_NOREPLACE
++    flags |= MAP_FIXED_NOREPLACE;
++#endif
++
+     while (addr >> 32)
+     {
+-        void *ret = anon_mmap_tryfixed( (void *)addr, host_page_size, PROT_NONE, 0 );
++        void *ret = mmap( (void *)addr, host_page_size, PROT_NONE, flags, -1, 0 );
+         if (ret != MAP_FAILED)
+         {
+             munmap( ret, host_page_size );
+-            break;
++            if (ret >= (void *)addr) break;
+         }
+         else if (errno == EEXIST) break;
+         addr >>= 1;

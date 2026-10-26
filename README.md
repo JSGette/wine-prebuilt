@@ -118,9 +118,10 @@ compatibility test effort.
 
 The initial recipe pins Wine **11.20** (a development release), LLVM-MinGW
 **20261020**, and MetalSharp's FEX fork. `sources.json` contains exact revisions,
-URLs and checksums, including FEX dependencies and test inputs. Linux amd64 uses
-upstream Wine; Linux ARM64 adds FEX registration; macOS applies the explicit
-patch series described in [patch provenance](patches/PROVENANCE.md).
+URLs and checksums, including FEX dependencies and test inputs. Both Linux
+builds patch Wine's address-space probe for the older sysroot headers;
+Linux ARM64 also adds FEX registration. macOS applies its explicit patch series.
+See [patch provenance](patches/PROVENANCE.md) for each patch's purpose and origin.
 
 Update those pins and checksums, review/rebase patches, and run the three native
 executors. Commit the recipe before a release build. Each build preserves its

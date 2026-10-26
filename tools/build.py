@@ -34,11 +34,11 @@ def prepare_wine(destination, source, target):
         shutil.copytree(source, staging, symlinks=True)
         if target == "macos-arm64":
             patches = sorted((ROOT / "patches/macos").glob("*.patch"))
-        elif target == "linux-arm64":
-            # The emulator registration is shared; macOS host adaptations are not.
-            patches = [ROOT / "patches/linux-arm64-fex.patch"]
         else:
-            patches = []
+            patches = [ROOT / "patches/linux-address-space-probe.patch"]
+            if target == "linux-arm64":
+                # The emulator registration is shared; Darwin adaptations are not.
+                patches.append(ROOT / "patches/linux-arm64-fex.patch")
         for patch in patches:
             # Unlike git apply, patch does not depend on an enclosing worktree.
             run("patch", "-t", "-N", "-F", "0", "-p1", "-i", str(patch),
