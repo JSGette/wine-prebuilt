@@ -125,7 +125,7 @@ def check_artifact(artifact, platform):
                 raise ValueError(f"checksum mismatch: {path.name}")
             hashes[path.name] = digest
     with tempfile.TemporaryDirectory(prefix="wine artifact ") as temporary:
-        root = Path(temporary)
+        root = Path(temporary).resolve()
         with tarfile.open(artifact) as archive:
             archive.extractall(root, filter="data")
         for relative in ("bin/wine", "bin/wineserver"):
