@@ -41,8 +41,10 @@ def main():
     result = work / f"{args.platform}-result.txt"
     if host_os == "linux":
         image = f"wine-prebuilt-{host_cpu}:builder"
+        (work / "home").mkdir(exist_ok=True)
         run("docker", "build", "--tag", image, ROOT)
-        run("docker", "run", "--rm", "--volume", f"{ROOT}:/src:ro",
+        run("docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
+            "--env", "HOME=/work/home", "--volume", f"{ROOT}:/src:ro",
             "--volume", f"{work}:/work", "--volume", f"{output}:/out",
             "--env", "WINE_BUILD_WORK=/work", "--env", f"PLATFORM={args.platform}",
             "--env", f"JOBS={args.jobs}", "--env", f"SERIAL={args.serial}", image,
