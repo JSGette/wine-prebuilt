@@ -1,0 +1,92 @@
+name: Build and qualify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      serial:
+        type: number
+        default: 1
+      attest:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      SERIAL: ${{ inputs.serial || 1 }}
+      JOBS: 4
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Build and qualify Linux
+        if: runner.os == 'Linux'
+        run: |
+          docker build -t wine-prebuilt-builder .
+          mkdir -p .work out
+          docker run --rm \
+            -v "$PWD:/src:ro" -v "$PWD/.work:/work" -v "$PWD/out:/out" \
+            -e WINE_BUILD_WORK=/work -e PLATFORM -e SERIAL -e JOBS \
+            wine-prebuilt-builder bash -euc '
+              bash tools/build-linux.sh
+              python3 tools/qualify.py /work/"$PLATFORM"/*/build.json --output /out --serial "$SERIAL"
+            '
+
+      - name: Test Linux glibc 2.17 baseline
+        if: runner.os == 'Linux'
+        run: |
+          python3 tools/baseline.py "$PLATFORM" out .work/"$PLATFORM"/*/fixtures
+
+      - name: Build and qualify macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install bison cmake ninja python@3.14
+          python3 tools/build.py "$PLATFORM" --jobs "$JOBS"
+          python3 tools/qualify.py .work/"$PLATFORM"/*/build.json --output out --serial "$SERIAL"
+
+      - name: Attest archives
+        if: inputs.attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: out/*.tar.gz
+
+      - name: Upload qualified distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wine-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: logs-${{ matrix.platform }}
+          path: |
+            .work/**/wine-build/*.log
+            .work/**/fex-build/**/*.log
+            .work/**/qualification/**/*.log
+          include-hidden-files: true
